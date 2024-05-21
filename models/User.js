@@ -1,7 +1,7 @@
-const { Schema, model } = require('mongoose');
-
-const userSchema = new Schema({
-    username: { type: String }
-});
-
-module.exports = model('user', userSchema);
+module.exports = class UserModel {
+  constructor(username) {
+    this._id = Math.floor(Math.random() * 100).toString();
+    this.username = username;
+    this.exercises = [];
+  }
+};

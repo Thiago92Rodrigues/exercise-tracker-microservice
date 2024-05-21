@@ -1,104 +1,108 @@
-const express = require('express')
-const app = express()
-const bodyParser = require('body-parser')
-const cors = require('cors')
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
 
-const mongoose = require('mongoose')
-mongoose.connect(process.env.MLAB_URI || 'mongodb://localhost/exercise-track' )
+const app = express();
+app.use(cors());
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
 
-app.use(cors())
+const User = require("./models/User");
+const Exercise = require("./models/Exercise");
 
-app.use(bodyParser.urlencoded({extended: false}))
-app.use(bodyParser.json())
+const users = [];
 
-const ExerciseModel = require('./models/Exercise');
-const UserModel = require('./models/User');
-
-app.use(express.static('public'))
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/views/index.html')
+app.use(express.static("public"));
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/views/index.html");
 });
 
 // add user endpoint
-app.post('/api/exercise/new-user', async (req, res) => {
+app.post("/api/users", async (req, res) => {
   const { username } = req.body;
-  const user = await UserModel.create({ username });
-  res.status(204).json(user);
+  const user = new User(username);
+  users.push(user);
+  return res.status(201).json({
+    _id: user._id,
+    username: user.username,
+  });
 });
 
 // get all users endpoint
-app.get('api/exercise/users', async (req, res) => {
-  const users = await UserModel.find();
-  res.status(200).json(users);
-})
+app.get("/api/users", async (req, res) => {
+  return res.status(200).json(users);
+});
 
 // add exercise endpoint
 // if no date supplied use current date
-app.post('/api/exercise/add', async (req, res) => {
-  const { userId, description, duration } = req.body;
-  let { date } = req.body;
+app.post("/api/users/:_id/exercises", async (req, res) => {
+  const { _id: userId } = req.params;
+  const { description, duration } = req.body;
+  var { date } = req.body;
   if (date === undefined) date = new Date();
-  const exercise = await ExerciseModel.create({
-    description,
-    duration,
-    date,
-    user: userId
-  });
-  res.status(204).json(exercise);
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    if (user._id == userId) {
+      const exercise = new Exercise(description, duration, date);
+      user.exercises.push(exercise);
+      return res.status(201).json({
+        _id: user._id,
+        username: user.username,
+        exercise,
+      });
+    }
+  }
+  return res.status(400).json({ message: "User not found" });
 });
 
 // get all exercises from a given user
 // it is also possible to retrieve part of the log
 // passing along optional parameters of from & to or limit.
-app.get('/api/exercise/log', async (req, res) => {
-  const { userId } = req.body;
-  const { from, to, limit } = req.body;
+app.get("/api/users/:_id/logs", async (req, res) => {
+  const { _id: userId } = req.params;
+  const { from, to, limit } = req.query;
 
-  let exercises;
-  if (from !== undefined && to !== undefined) {
-    exercises = await ExerciseModel.find({
-      user: userId,
-      date: { $gte: from, $lte: to }
-    });
-  } else if (limit !== undefined) {
-    exercises = await ExerciseModel.find({
-      user: userId,
-      date: { $lte: limit }
-    });
-  } else {
-    exercises = await ExerciseModel.find({ 
-      user: userId
-    });
+  const limitFilter = limit != undefined;
+  const dateFilter = from != undefined && to != undefined;
+  var startDate, endDate;
+  if (dateFilter) {
+    startDate = new Date(Date.parse(from));
+    endDate = new Date(Date.parse(to));
   }
 
-  res.status(200).json({ exercises });
+  const result = [];
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    if (user._id == userId) {
+      for (let j = 0; j < user.exercises.length; j++) {
+        const exercise = user.exercises[j];
+        if (limitFilter && result.length >= limit) {
+          break;
+        }
+        if (!dateFilter) {
+          result.push(exercise);
+        } else {
+          if (exercise.date > startDate && exercise.date < endDate) {
+            result.push(exercise);
+          }
+        }
+      }
+      return res.status(200).json({
+        _id: user._id,
+        username: user.username,
+        count: result.length,
+        log: result,
+      });
+    }
+  }
+  return res.status(400).json({ message: "User not found" });
 });
-
 
 // Not found middleware
 app.use((req, res, next) => {
-  return next({status: 404, message: 'not found'})
-})
-
-// Error Handling middleware
-app.use((err, req, res, next) => {
-  let errCode, errMessage
-
-  if (err.errors) {
-    // mongoose validation error
-    errCode = 400 // bad request
-    const keys = Object.keys(err.errors)
-    // report the first validation error
-    errMessage = err.errors[keys[0]].message
-  } else {
-    // generic or custom error
-    errCode = err.status || 500
-    errMessage = err.message || 'Internal Server Error'
-  }
-  res.status(errCode).type('txt')
-    .send(errMessage)
-})
+  return next({ status: 404, message: "not found" });
+});
 
 const listener = app.listen(process.env.PORT || 3000, () => {
-  console.log('Your app is listening on port ' + listener.address().port)
-})
+  console.log("Your app is listening on port " + listener.address().port);
+});
